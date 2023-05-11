@@ -2,7 +2,7 @@ import { calculateTfIdf } from "ts-tfidf";
 import { Cluster } from "ml-hclust";
 import { mean } from "mathjs";
 
-type ClusterLike = {
+export type ClusterLike = {
   height: number;
   size: number;
   index: number;
@@ -42,10 +42,14 @@ export function extractKeywordsTfIdf(
   return keywords;
 }
 
-export function extractAgnesClusters(tree_: ClusterLike, nClusters: number, nObjects: number) {
+export function extractAgnesClusters(
+  tree_: ClusterLike,
+  nClusters: number,
+  nObjects: number
+): number[] {
   const tree = toCluster(tree_);
   const groups = tree.group(nClusters);
-  let clusts = Array(nObjects).fill(-1);
+  let clusts: number[] = Array(nObjects).fill(-1);
   for (let cli = 0; cli < nClusters; ++cli) {
     let ch = groups.children[cli];
     for (const chi of ch.indices()) {
