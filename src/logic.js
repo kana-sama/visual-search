@@ -6,10 +6,10 @@ import { mean } from "mathjs";
 import { UMAP } from "umap-js";
 import { agnes } from "ml-hclust";
 
-import { getIdsPerCluster } from "./cluster-utils.js";
+import { getIdsPerCluster } from "./cluster-utils";
 
-import * as semanticScholar from "./article-sources/semantic-scholar.ts";
-import * as pubMed from "./article-sources/pub-med.ts";
+import * as semanticScholar from "./article-sources/semantic-scholar";
+import * as pubMed from "./article-sources/pub-med";
 
 const nlp = winkNLP(model, ["pos", "ner", "cer"]);
 const its = nlp.its;
@@ -23,13 +23,6 @@ function loadObject(eid) {
 }
 
 function plotTextEmbedding(data, clusterData, plotDivId, textDivId) {
-  console.log(
-    data
-      .map((t) => t.title)
-      .map((t) => " - " + t)
-      .join("\n")
-  );
-
   let schema = {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     datasets: {

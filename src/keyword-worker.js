@@ -1,4 +1,4 @@
-import { extractKeywordsTfIdf, extractAgnesClusters } from "./cluster-utils.js";
+import { extractKeywordsTfIdf, extractAgnesClusters } from "./cluster-utils";
 
 onmessage = function (event) {
   const tree = event.data.tree;
