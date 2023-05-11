@@ -1,17 +1,13 @@
-Before:
-
 ```bash
+# init
 npm install
-```
 
-Dev:
-
-```bash
+# dev
 npm start
-```
 
-Prod:
+# build
+npm run build
 
-```bash
-npm build
+# deploy to gh-pages
+npm run deploy
 ```
