@@ -137,7 +137,7 @@ function plotClusterDataAsync({
   embedding,
   tree,
 }) {
-  let worker = new Worker(new URL("./keyword-worker.js", import.meta.url));
+  let worker = new Worker(new URL("./keyword-worker", import.meta.url));
   worker.onmessage = function (e) {
     if (e.data.type === "update") {
       console.log(e.data.text);
@@ -200,10 +200,9 @@ function cosine(x, y) {
   }
 }
 
-// Word2Vec embedding
-
 async function fetchWord2Vec() {
-  return fetch("w2v.json").then((r) => r.json());
+  const response = await fetch(new URL("./w2v.json", import.meta.url));
+  return await response.json();
 }
 
 function embedSentence(tokens, w2v) {
