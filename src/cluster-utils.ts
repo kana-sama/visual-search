@@ -2,7 +2,19 @@ import { calculateTfIdf } from "ts-tfidf";
 import { Cluster } from "ml-hclust";
 import { mean } from "mathjs";
 
-export function extractKeywordsTfIdf(tokens, clusters, { nKeywords = 10 } = {}) {
+type ClusterLike = {
+  height: number;
+  size: number;
+  index: number;
+  isLeaf: boolean;
+  children: ClusterLike[];
+};
+
+export function extractKeywordsTfIdf(
+  tokens: string[][],
+  clusters: number[],
+  { nKeywords = 10 } = {}
+): string[] {
   const corpus = calculateTfIdf({
     texts: tokens.map((t) => t.join(" ")),
     stopWords: ["null"],
@@ -11,11 +23,12 @@ export function extractKeywordsTfIdf(tokens, clusters, { nKeywords = 10 } = {}) 
 
   // average tfidf for each cluster
   const words = Array.from(corpus[0].keys());
-  const clusterTfidf = clusterIds.map((ids) =>
-    mean(
-      ids.map((i) => Array.from(corpus[i].values())),
-      0
-    )
+  const clusterTfidf = clusterIds.map(
+    (ids) =>
+      mean(
+        ids.map((i) => Array.from(corpus[i].values())),
+        0
+      ) as number[]
   );
 
   // get the top nKeywords keywords for each cluster
@@ -26,13 +39,12 @@ export function extractKeywordsTfIdf(tokens, clusters, { nKeywords = 10 } = {}) 
 
   // join keywords per cluster
   const keywords = clusterKeywords.map((kw) => kw.join(","));
-  console.log(keywords);
   return keywords;
 }
 
-export function extractAgnesClusters(tree, nClusters, nObjects) {
-  tree = toCluster(tree);
-  const groups = tree.group(parseInt(nClusters));
+export function extractAgnesClusters(tree_: ClusterLike, nClusters: number, nObjects: number) {
+  const tree = toCluster(tree_);
+  const groups = tree.group(nClusters);
   let clusts = Array(nObjects).fill(-1);
   for (let cli = 0; cli < nClusters; ++cli) {
     let ch = groups.children[cli];
@@ -44,9 +56,9 @@ export function extractAgnesClusters(tree, nClusters, nObjects) {
   return clusts;
 }
 
-export function getIdsPerCluster(clusters) {
-  let clusterIds = Array(new Set(clusters).size)
-    .fill()
+export function getIdsPerCluster(clusters: number[]): number[][] {
+  let clusterIds: number[][] = Array(new Set(clusters).size)
+    .fill(undefined)
     .map(() => []);
   for (let i = 0; i < clusters.length; ++i) {
     clusterIds[clusters[i]].push(i);
@@ -54,7 +66,7 @@ export function getIdsPerCluster(clusters) {
   return clusterIds;
 }
 
-function toCluster(tree) {
+function toCluster(tree: ClusterLike): Cluster {
   const cluster = new Cluster();
   cluster.height = tree.height;
   cluster.size = tree.size;
