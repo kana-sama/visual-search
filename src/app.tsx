@@ -139,8 +139,9 @@ export function App() {
             />
             Prettify keywords using ChatGPT
           </label>
-          <input
+          <SecureInput
             className="input column is-8"
+            style={{ fontFamily: "monospace" }}
             placeholder="OpenAI token"
             value={openAIToken}
             disabled={!prettyKeywords}
@@ -157,5 +158,17 @@ export function App() {
         </div>
       </main>
     </>
+  );
+}
+
+function SecureInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const [inFocus, setInFocus] = useState(false);
+  return (
+    <input
+      {...props}
+      type={inFocus ? "text" : "password"}
+      onFocus={() => setInFocus(true)}
+      onBlur={() => setInFocus(false)}
+    />
   );
 }

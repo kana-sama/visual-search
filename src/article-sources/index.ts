@@ -13,11 +13,7 @@ function isEmptyArticle(article: Article): boolean {
   return false;
 }
 
-export type ArticlesSource = (
-  query: string,
-  amount: number,
-  excludeEmpty: boolean
-) => Promise<Article[]>;
+export type ArticlesSource = (query: string, amount: number, excludeEmpty: boolean) => Promise<Article[]>;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,8 +28,13 @@ export function withPagination(
     let result: Article[] = [];
 
     while (offset < amount) {
-      const chunkSize = Math.min(amount - offset, limit);
-      let chunk = await request(query, chunkSize, offset);
+      let chunkSize = Math.min(amount - offset, limit);
+
+      if (chunkSize * 2 < limit) {
+        chunkSize *= 2;
+      }
+
+      let chunk = await request(query, limit, offset);
 
       if (excludeEmpty) chunk = chunk.filter((article) => !isEmptyArticle(article));
 
@@ -42,7 +43,7 @@ export function withPagination(
       offset += chunk.length;
       result.push(...chunk);
 
-      await sleep(200);
+      await sleep(500);
     }
 
     return result;

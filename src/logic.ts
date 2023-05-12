@@ -272,10 +272,11 @@ async function fetchWord2Vec() {
 
 function embedSentence(tokens: string[], w2v: Record<string, number[]>) {
   // get the average of all word vectors for tokens that are present in w2v
-  let vecs = tokens.map((t) => w2v[t]).filter((v) => v !== undefined);
+  let vecs = tokens.map((t) => w2v[t]).filter(Array.isArray);
   if (vecs.length === 0) {
     return Array(Object.values(w2v)[0].length).fill(0.0);
   }
+
   return mean(vecs, 0);
 }
 
