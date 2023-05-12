@@ -110,7 +110,6 @@ export function App() {
 
   useEffect(() => {
     if (!searched) return;
-    progress.reset();
 
     updateNClusters_(progress, {
       plotDivId: "out-plot",
