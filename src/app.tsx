@@ -117,7 +117,7 @@ export function App() {
       nClusters: clustersCount,
       prettifyKeywords,
     });
-  }, [progress, searched, clustersCount, prettifyKeywords]);
+  }, [progress, clustersCount, prettifyKeywords]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
