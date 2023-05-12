@@ -161,6 +161,7 @@ async function plotClusterDataAsync({
   tokens,
   embedding,
   tree,
+  prettifyKeywords,
 }: {
   plotDivId: string;
   textDivId: string;
@@ -169,6 +170,7 @@ async function plotClusterDataAsync({
   tokens: string[][];
   embedding: number[][];
   tree: Cluster;
+  prettifyKeywords: false | { token: string };
 }) {
   const worker = new Worker(new URL("./keyword-worker.ts", import.meta.url) as any);
   const keywordWorker = await spawn<KeywordWorker>(worker);
@@ -183,24 +185,27 @@ async function plotClusterDataAsync({
     byClasters[c].articles.push(docInfo[i]);
   });
 
-  const model = new OpenAI({
-    openAIApiKey: "",
-    temperature: 0.9,
-  });
+  if (prettifyKeywords) {
+    const model = new OpenAI({
+      openAIApiKey: prettifyKeywords.token,
+      temperature: 0.9,
+    });
 
-  await Promise.all(
-    byClasters.map(async (cluster, i) => {
-      keywords[i] = await model.call(`
+    await Promise.all(
+      byClasters.map(async (cluster, i) => {
+        keywords[i] = await model.call(`
         We have a set of articles with the following names:
         ${cluster.articles.map((article) => " - " + article.title).join("\n")}
 
         This group can be distinguished by the following keywords: ${cluster.keyword}.
 
-        Generate a single short sentence in maximum of ten words that would describe this group of articles.
-        Do not use words such as "group", "articles", "about".
+        Generate a short title using maximum of 7 words that would describe that group of articles.
+        Do not use common words like "group", "article", "about".
+        Do not wrap with quotes. Do not use pattern "A: B".
       `);
-    })
-  );
+      })
+    );
+  }
 
   const plotData = preparePlotData(
     docInfo,
@@ -212,7 +217,17 @@ async function plotClusterDataAsync({
   plotTextEmbedding(plotData, clusterData, plotDivId, textDivId);
 }
 
-export async function updateNClusters({ plotDivId, textDivId, nClusters }: any) {
+export async function updateNClusters({
+  plotDivId,
+  textDivId,
+  nClusters,
+  prettifyKeywords,
+}: {
+  plotDivId: string;
+  textDivId: string;
+  nClusters: number;
+  prettifyKeywords: false | { token: string };
+}) {
   const embedding: number[][] = loadObject("umap") as any;
   const tokens: string[][] = loadObject("tokens") as any;
   const docInfo: ArticleWithText[] = loadObject("docInfo") as any;
@@ -226,6 +241,7 @@ export async function updateNClusters({ plotDivId, textDivId, nClusters }: any) 
     tokens: tokens,
     embedding: embedding,
     tree: tree,
+    prettifyKeywords,
   });
 }
 
@@ -276,7 +292,23 @@ function getArticlesSource(source: string) {
 
 export async function analyseTexts(
   query: string,
-  { plotDivId, textDivId, nResults = 100, nClusters = 10, excludeEmpty, source }: any = {}
+  {
+    plotDivId,
+    textDivId,
+    nResults,
+    nClusters,
+    excludeEmpty,
+    source,
+    prettifyKeywords,
+  }: {
+    plotDivId: string;
+    textDivId: string;
+    nResults: number;
+    nClusters: number;
+    excludeEmpty: boolean;
+    source: string;
+    prettifyKeywords: false | { token: string };
+  }
 ) {
   console.log("Query: " + query);
   let w2vReq = fetchWord2Vec();
@@ -313,6 +345,7 @@ export async function analyseTexts(
         tokens: tokens,
         embedding: embedding,
         tree: tree,
+        prettifyKeywords,
       });
     });
   });

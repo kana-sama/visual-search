@@ -22,7 +22,7 @@ export function useStateStored<T>(
 
     window.addEventListener("storage", tryLoadValue);
     return () => window.removeEventListener("storage", tryLoadValue);
-  }, [key]);
+  }, [key, isValid]);
 
   const setValue = useCallback(
     (newValue: T) => {

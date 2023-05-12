@@ -17,7 +17,6 @@ function SearchBar(props: { onSearch(req: SearchRequest): void }) {
   const [articlesCount, setArticlesCount] = useStateStored("articles-count", 100, isNumber);
   const [articlesSource, setArticlesSource] = useStateStored("articles-source", "semantic-scholar", isString);
   const [articlesExcludeEmpty, setArticlesExcludeEmpty] = useStateStored("exclude-empty", false, isBoolean);
-  // const [openAIToken, setOpenAIToken] = useStateStored("");
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -78,8 +77,13 @@ function SearchBar(props: { onSearch(req: SearchRequest): void }) {
 }
 
 export function App() {
-  const [clustersCount, setClustersCount] = useState(10);
+  const [clustersCount, setClustersCount] = useStateStored("clusters-count", 10, isNumber);
+  const [prettyKeywords, setPrettyKeywords] = useStateStored("pretty-kws", false, isBoolean);
+  const [openAIToken, setOpenAIToken] = useStateStored("open-ai-token", "", isString);
+
   const [searched, setSearched] = useState(false);
+
+  const prettifyKeywords = prettyKeywords && { token: openAIToken };
 
   async function handleSearch(request: SearchRequest) {
     await analyseTexts(request.query, {
@@ -89,6 +93,7 @@ export function App() {
       nResults: request.articlesCount,
       excludeEmpty: request.articlesExcludeEmpty,
       source: request.articlesSource,
+      prettifyKeywords,
     });
 
     setSearched(true);
@@ -101,30 +106,50 @@ export function App() {
       plotDivId: "out-plot",
       textDivId: "out-text",
       nClusters: clustersCount,
+      prettifyKeywords,
     });
-  }, [searched, clustersCount]);
+  }, [searched, clustersCount, prettyKeywords]);
 
   return (
     <>
       <SearchBar onSearch={handleSearch} />
+      <div className="container">
+        <div className="control">
+          <label className="label">
+            Clusters
+            <input
+              type="range"
+              min="2"
+              max="50"
+              className="slider is-fullwidth"
+              disabled={!searched}
+              value={clustersCount}
+              onChange={(event) => setClustersCount(parseInt(event.currentTarget.value))}
+            />
+            {clustersCount}
+          </label>
+        </div>
 
-      <div className="control">
-        <label className="label">
-          Clusters
+        <div className="control columns">
+          <label className="checkbox column is-4">
+            <input
+              type="checkbox"
+              checked={prettyKeywords}
+              onChange={(event) => setPrettyKeywords(event.currentTarget.checked)}
+            />
+            Prettify keywords using ChatGPT
+          </label>
           <input
-            type="range"
-            min="2"
-            max="50"
-            className="slider is-fullwidth"
-            disabled={!searched}
-            value={clustersCount}
-            onChange={(event) => setClustersCount(parseInt(event.currentTarget.value))}
+            className="input column is-8"
+            placeholder="OpenAI token"
+            value={openAIToken}
+            disabled={!prettyKeywords}
+            onChange={(event) => setOpenAIToken(event.currentTarget.value)}
           />
-          {clustersCount}
-        </label>
+        </div>
       </div>
       <main>
-        <div className="container">
+        <div className="container" style={{ marginTop: "20px" }}>
           <div className="columns">
             <div id="out-plot" className="column is-8"></div>
             <div id="out-text" className="column"></div>
