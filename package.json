@@ -2,14 +2,15 @@
   "name": "visual-search",
   "homepage": "https://kana-sama.github.io/visual-search",
   "dependencies": {
-    "@types/react": "^18.2.6",
-    "@types/react-dom": "^18.2.4",
     "bulma": "^0.9.4",
     "langchain": "^0.0.74",
+    "lodash.debounce": "^4.0.8",
     "mathjs": "^11.8.0",
     "ml-hclust": "^3.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "styled-components": "^6.0.0-rc.1",
     "threads": "^1.7.0",
     "tiny-tfidf": "^0.9.1",
     "ts-tfidf": "^0.0.5",
@@ -21,20 +22,45 @@
     "wink-nlp": "^1.13.1"
   },
   "devDependencies": {
+    "@storybook/addon-essentials": "^7.0.11",
+    "@storybook/addon-interactions": "^7.0.11",
+    "@storybook/addon-links": "^7.0.11",
+    "@storybook/blocks": "^7.0.11",
+    "@storybook/preset-create-react-app": "^7.0.11",
+    "@storybook/react": "^7.0.11",
+    "@storybook/react-webpack5": "^7.0.11",
+    "@storybook/testing-library": "^0.0.14-next.2",
+    "@types/react": "^18.2.6",
+    "@types/react-dom": "^18.2.4",
+    "@types/styled-components": "^5.1.26",
+    "babel-plugin-named-exports-order": "^0.0.2",
     "gh-pages": "^5.0.0",
-    "react-scripts": "5.0.1",
-    "typescript": "^4.9.5"
+    "prop-types": "^15.8.1",
+    "storybook": "^7.0.11",
+    "typescript": "^4.9.5",
+    "webpack": "^5.82.1"
   },
   "scripts": {
     "start": "PUBLIC_URL=/ react-scripts start",
     "build": "react-scripts build",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d build"
+    "deploy": "gh-pages -d build",
+    "docs": "storybook dev -p 6006"
   },
   "eslintConfig": {
     "extends": [
       "react-app",
       "react-app/jest"
+    ],
+    "overrides": [
+      {
+        "files": [
+          "**/*.stories.*"
+        ],
+        "rules": {
+          "import/no-anonymous-default-export": "off"
+        }
+      }
     ]
   },
   "browserslist": {

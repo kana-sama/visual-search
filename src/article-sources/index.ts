@@ -1,3 +1,5 @@
+import { ProgressStep } from "../progress";
+
 export interface Article {
   title: string;
   abstract?: string;
@@ -13,17 +15,22 @@ function isEmptyArticle(article: Article): boolean {
   return false;
 }
 
-export type ArticlesSource = (query: string, amount: number, excludeEmpty: boolean) => Promise<Article[]>;
+export type ArticlesSource = (
+  query: string,
+  amount: number,
+  excludeEmpty: boolean,
+  step?: ProgressStep
+) => Promise<Article[]>;
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export function withPagination(
   request: (query: string, limit: number, offset: number) => Promise<Article[]>,
   limit: number
 ): ArticlesSource {
-  return async (query, amount, excludeEmpty) => {
+  return async (query, amount, excludeEmpty, progress) => {
     let offset = 0;
     let result: Article[] = [];
 
@@ -36,12 +43,17 @@ export function withPagination(
 
       let chunk = await request(query, limit, offset);
 
-      if (excludeEmpty) chunk = chunk.filter((article) => !isEmptyArticle(article));
+      if (excludeEmpty) chunk = chunk.filter(article => !isEmptyArticle(article));
 
       if (chunk.length === 0) break;
 
+      chunk.splice(amount - offset);
       offset += chunk.length;
       result.push(...chunk);
+
+      progress?.setMessage(`Fetching articles: ${offset}/${amount}`);
+
+      if (amount - offset === 0) break;
 
       await sleep(500);
     }

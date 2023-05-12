@@ -1,8 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import "bulma/css/bulma.css";
+import debounce from "lodash/debounce";
 
 import { analyseTexts, updateNClusters } from "./logic";
 import { useStateStored, isNumber, isString, isBoolean } from "./hooks/use-state-stored";
+
+import { ProgressView, useProgress } from "./progress";
 
 type SearchRequest = {
   query: string;
@@ -39,17 +42,17 @@ function SearchBar(props: { onSearch(req: SearchRequest): void }) {
               className="column input is-7"
               placeholder="Search query"
               value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
+              onChange={event => setQuery(event.currentTarget.value)}
             />
             <input
               className="input"
               type="number"
               placeholder="#results"
               value={articlesCount}
-              onChange={(event) => setArticlesCount(parseInt(event.currentTarget.value))}
+              onChange={event => setArticlesCount(parseInt(event.currentTarget.value))}
             />
             <div className="select">
-              <select value={articlesSource} onChange={(event) => setArticlesSource(event.currentTarget.value)}>
+              <select value={articlesSource} onChange={event => setArticlesSource(event.currentTarget.value)}>
                 <option value="semantic-scholar">Semantic Scholar</option>
                 <option value="pub-med">PubMed</option>
               </select>
@@ -64,7 +67,7 @@ function SearchBar(props: { onSearch(req: SearchRequest): void }) {
                 <input
                   type="checkbox"
                   checked={articlesExcludeEmpty}
-                  onChange={(event) => setArticlesExcludeEmpty(event.currentTarget.checked)}
+                  onChange={event => setArticlesExcludeEmpty(event.currentTarget.checked)}
                 />
                 Exclude empty articles
               </label>
@@ -76,17 +79,23 @@ function SearchBar(props: { onSearch(req: SearchRequest): void }) {
   );
 }
 
+const updateNClusters_ = debounce(updateNClusters, 500);
+
 export function App() {
+  const progress = useProgress();
+
   const [clustersCount, setClustersCount] = useStateStored("clusters-count", 10, isNumber);
   const [prettyKeywords, setPrettyKeywords] = useStateStored("pretty-kws", false, isBoolean);
   const [openAIToken, setOpenAIToken] = useStateStored("open-ai-token", "", isString);
 
   const [searched, setSearched] = useState(false);
 
-  const prettifyKeywords = prettyKeywords && { token: openAIToken };
+  const prettifyKeywords = useMemo(() => prettyKeywords && { token: openAIToken }, [prettyKeywords, openAIToken]);
 
   async function handleSearch(request: SearchRequest) {
-    await analyseTexts(request.query, {
+    progress.reset();
+
+    await analyseTexts(request.query, progress, {
       plotDivId: "out-plot",
       textDivId: "out-text",
       nClusters: clustersCount,
@@ -101,18 +110,20 @@ export function App() {
 
   useEffect(() => {
     if (!searched) return;
+    progress.reset();
 
-    updateNClusters({
+    updateNClusters_(progress, {
       plotDivId: "out-plot",
       textDivId: "out-text",
       nClusters: clustersCount,
       prettifyKeywords,
     });
-  }, [searched, clustersCount, prettyKeywords]);
+  }, [progress, searched, clustersCount, prettifyKeywords]);
 
   return (
     <>
       <SearchBar onSearch={handleSearch} />
+
       <div className="container">
         <div className="control">
           <label className="label">
@@ -124,7 +135,7 @@ export function App() {
               className="slider is-fullwidth"
               disabled={!searched}
               value={clustersCount}
-              onChange={(event) => setClustersCount(parseInt(event.currentTarget.value))}
+              onChange={event => setClustersCount(parseInt(event.currentTarget.value))}
             />
             {clustersCount}
           </label>
@@ -135,7 +146,7 @@ export function App() {
             <input
               type="checkbox"
               checked={prettyKeywords}
-              onChange={(event) => setPrettyKeywords(event.currentTarget.checked)}
+              onChange={event => setPrettyKeywords(event.currentTarget.checked)}
             />
             Prettify keywords using ChatGPT
           </label>
@@ -145,16 +156,19 @@ export function App() {
             placeholder="OpenAI token"
             value={openAIToken}
             disabled={!prettyKeywords}
-            onChange={(event) => setOpenAIToken(event.currentTarget.value)}
+            onChange={event => setOpenAIToken(event.currentTarget.value)}
           />
         </div>
       </div>
-      <main>
-        <div className="container" style={{ marginTop: "20px" }}>
-          <div className="columns">
-            <div id="out-plot" className="column is-8"></div>
-            <div id="out-text" className="column"></div>
-          </div>
+
+      <div className="container my-5">
+        <ProgressView progress={progress} />
+      </div>
+
+      <main className="container" style={{ marginTop: "20px" }}>
+        <div className="columns">
+          <div id="out-plot" className="column is-8"></div>
+          <div id="out-text" className="column"></div>
         </div>
       </main>
     </>

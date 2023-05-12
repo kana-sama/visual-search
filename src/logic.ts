@@ -19,6 +19,7 @@ import type { KeywordWorker } from "./keyword-worker";
 
 import { type BaseLLM } from "langchain/llms/base";
 import { OpenAI } from "langchain/llms/openai";
+import { Progress } from "./progress";
 
 type ArticleWithText = Article & { text: string };
 
@@ -107,7 +108,6 @@ function plotTextEmbedding(data: PointData[], clusterData: ClusterData[], plotDi
     height: 500,
   };
 
-  //   console.log(schema)
   embed(`#${plotDivId}`, schema)
     .then(function (result) {
       result.view.addEventListener("click", (event, item?: null | Item<Article>) => {
@@ -172,39 +172,46 @@ function traverseP<T, G>(xs: T[], f: (x: T) => Promise<G>): Promise<G[]> {
   return Promise.all(xs.map(f));
 }
 
-async function plotClusterDataAsync({
-  plotDivId,
-  textDivId,
-  nClusters,
-  docInfo,
-  tokens,
-  embedding,
-  tree,
-  prettifyKeywords,
-}: {
-  plotDivId: string;
-  textDivId: string;
-  nClusters: number;
-  docInfo: ArticleWithText[];
-  tokens: string[][];
-  embedding: number[][];
-  tree: Cluster;
-  prettifyKeywords: false | { token: string };
-}) {
+async function plotClusterDataAsync(
+  progress: Progress,
+  {
+    plotDivId,
+    textDivId,
+    nClusters,
+    docInfo,
+    tokens,
+    embedding,
+    tree,
+    prettifyKeywords,
+  }: {
+    plotDivId: string;
+    textDivId: string;
+    nClusters: number;
+    docInfo: ArticleWithText[];
+    tokens: string[][];
+    embedding: number[][];
+    tree: Cluster;
+    prettifyKeywords: false | { token: string };
+  }
+) {
+  const step_clusterization = progress.step("Clusterization");
   const worker = new Worker(new URL("./keyword-worker.ts", import.meta.url) as any);
   const keywordWorker = await spawn<KeywordWorker>(worker);
   let { clusts, keywords } = await keywordWorker(tree, nClusters, embedding, tokens);
   await Thread.terminate(keywordWorker);
-
-  const byClasters: { keyword: string; articles: Article[] }[] = keywords.map(keyword => ({
-    keyword,
-    articles: [],
-  }));
-  clusts.forEach((c, i) => {
-    byClasters[c].articles.push(docInfo[i]);
-  });
+  step_clusterization.complete();
 
   if (prettifyKeywords) {
+    const step_prettify = progress.step("Resolve clusters names using ChatGPT");
+
+    const byClasters: { keyword: string; articles: Article[] }[] = keywords.map(keyword => ({
+      keyword,
+      articles: [],
+    }));
+    clusts.forEach((c, i) => {
+      byClasters[c].articles.push(docInfo[i]);
+    });
+
     const model = new OpenAI({
       openAIApiKey: prettifyKeywords.token,
       temperature: 0.9,
@@ -217,6 +224,8 @@ async function plotClusterDataAsync({
         cluster.articles.map(article => article.title)
       )
     );
+
+    step_prettify.complete();
   }
 
   const plotData = preparePlotData(
@@ -226,26 +235,30 @@ async function plotClusterDataAsync({
   );
 
   const clusterData = prepareClusterData(clusts, keywords, plotData);
+
   plotTextEmbedding(plotData, clusterData, plotDivId, textDivId);
 }
 
-export async function updateNClusters({
-  plotDivId,
-  textDivId,
-  nClusters,
-  prettifyKeywords,
-}: {
-  plotDivId: string;
-  textDivId: string;
-  nClusters: number;
-  prettifyKeywords: false | { token: string };
-}) {
+export async function updateNClusters(
+  progress: Progress,
+  {
+    plotDivId,
+    textDivId,
+    nClusters,
+    prettifyKeywords,
+  }: {
+    plotDivId: string;
+    textDivId: string;
+    nClusters: number;
+    prettifyKeywords: false | { token: string };
+  }
+) {
   const embedding: number[][] = loadObject("umap") as any;
   const tokens: string[][] = loadObject("tokens") as any;
   const docInfo: ArticleWithText[] = loadObject("docInfo") as any;
   const tree: Cluster = loadObject("hclust") as any;
 
-  plotClusterDataAsync({
+  plotClusterDataAsync(progress, {
     plotDivId: plotDivId,
     textDivId: textDivId,
     nClusters: nClusters,
@@ -305,6 +318,7 @@ function getArticlesSource(source: string) {
 
 export async function analyseTexts(
   query: string,
+  progress: Progress,
   {
     plotDivId,
     textDivId,
@@ -323,9 +337,14 @@ export async function analyseTexts(
     prettifyKeywords: false | { token: string };
   }
 ) {
-  console.log("Query: " + query);
+  const step_W2V = progress.step("Downloading w2v.json");
   let w2vReq = fetchWord2Vec();
-  let docReq = getArticlesSource(source)(query, nResults, excludeEmpty);
+  w2vReq.then(() => step_W2V.complete());
+
+  const step_getArticles = progress.step("Fetching articles");
+  let docReq = getArticlesSource(source)(query, nResults, excludeEmpty, step_getArticles);
+  docReq.then(() => step_getArticles.complete());
+
   return docReq.then(di => {
     const docInfo: ArticleWithText[] = di.map(d => {
       return { ...d, text: d.title + " " + d.abstract };
@@ -350,7 +369,7 @@ export async function analyseTexts(
       const tree = agnes(embedding, { method: "ward" });
       storeObject("hclust", tree);
 
-      plotClusterDataAsync({
+      plotClusterDataAsync(progress, {
         plotDivId: plotDivId,
         textDivId: textDivId,
         nClusters: nClusters,
