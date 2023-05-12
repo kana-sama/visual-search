@@ -17,6 +17,7 @@ import * as pubMed from "./article-sources/pub-med";
 
 import type { KeywordWorker } from "./keyword-worker";
 
+import { type BaseLLM } from "langchain/llms/base";
 import { OpenAI } from "langchain/llms/openai";
 
 type ArticleWithText = Article & { text: string };
@@ -129,7 +130,7 @@ function plotTextEmbedding(data: PointData[], clusterData: ClusterData[], plotDi
 }
 
 function preparePlotData(textData: ArticleWithText[], embedding: number[][], clusters: string[]): PointData[] {
-  let minYear = Math.min(...textData.map((d) => d.year));
+  let minYear = Math.min(...textData.map(d => d.year));
   return textData.map((d, i) => {
     return {
       ...d,
@@ -146,11 +147,29 @@ function preparePlotData(textData: ArticleWithText[], embedding: number[][], clu
 function prepareClusterData(clusts: number[], keywords: string[], plotData: PointData[]): ClusterData[] {
   return getIdsPerCluster(clusts).map((ids, ci) => {
     return {
-      x: mean(ids.map((i) => plotData[i].x)) as number,
-      y: mean(ids.map((i) => plotData[i].y)) as number,
+      x: mean(ids.map(i => plotData[i].x)) as number,
+      y: mean(ids.map(i => plotData[i].y)) as number,
       cluster: keywords[ci],
     };
   });
+}
+
+async function generateClusterName(model: BaseLLM, keywords: string[], titles: string[]): Promise<string> {
+  return await model.call(`
+    We have a set of articles with the following names:
+    ${titles.map(title => " - " + title).join("\n")}
+
+    This group can be distinguished by the following keywords:
+    ${keywords.map(keyword => " - " + keyword).join("\n")}
+
+    Generate a short title using maximum of 7 words that would describe that group of articles.
+    Do not use common words like "group", "article", "about".
+    Do not wrap with quotes. Do not use pattern "A: B".
+  `);
+}
+
+function traverseP<T, G>(xs: T[], f: (x: T) => Promise<G>): Promise<G[]> {
+  return Promise.all(xs.map(f));
 }
 
 async function plotClusterDataAsync({
@@ -174,10 +193,10 @@ async function plotClusterDataAsync({
 }) {
   const worker = new Worker(new URL("./keyword-worker.ts", import.meta.url) as any);
   const keywordWorker = await spawn<KeywordWorker>(worker);
-  const { clusts, keywords } = await keywordWorker(tree, nClusters, embedding, tokens);
+  let { clusts, keywords } = await keywordWorker(tree, nClusters, embedding, tokens);
   await Thread.terminate(keywordWorker);
 
-  const byClasters: { keyword: string; articles: Article[] }[] = keywords.map((keyword) => ({
+  const byClasters: { keyword: string; articles: Article[] }[] = keywords.map(keyword => ({
     keyword,
     articles: [],
   }));
@@ -191,26 +210,19 @@ async function plotClusterDataAsync({
       temperature: 0.9,
     });
 
-    await Promise.all(
-      byClasters.map(async (cluster, i) => {
-        keywords[i] = await model.call(`
-        We have a set of articles with the following names:
-        ${cluster.articles.map((article) => " - " + article.title).join("\n")}
-
-        This group can be distinguished by the following keywords: ${cluster.keyword}.
-
-        Generate a short title using maximum of 7 words that would describe that group of articles.
-        Do not use common words like "group", "article", "about".
-        Do not wrap with quotes. Do not use pattern "A: B".
-      `);
-      })
+    keywords = await traverseP(byClasters, cluster =>
+      generateClusterName(
+        model,
+        cluster.keyword.split(","),
+        cluster.articles.map(article => article.title)
+      )
     );
   }
 
   const plotData = preparePlotData(
     docInfo,
     embedding,
-    clusts.map((cl) => keywords[cl])
+    clusts.map(cl => keywords[cl])
   );
 
   const clusterData = prepareClusterData(clusts, keywords, plotData);
@@ -272,7 +284,7 @@ async function fetchWord2Vec() {
 
 function embedSentence(tokens: string[], w2v: Record<string, number[]>) {
   // get the average of all word vectors for tokens that are present in w2v
-  let vecs = tokens.map((t) => w2v[t]).filter(Array.isArray);
+  let vecs = tokens.map(t => w2v[t]).filter(Array.isArray);
   if (vecs.length === 0) {
     return Array(Object.values(w2v)[0].length).fill(0.0);
   }
@@ -314,22 +326,22 @@ export async function analyseTexts(
   console.log("Query: " + query);
   let w2vReq = fetchWord2Vec();
   let docReq = getArticlesSource(source)(query, nResults, excludeEmpty);
-  return docReq.then((di) => {
-    const docInfo: ArticleWithText[] = di.map((d) => {
+  return docReq.then(di => {
+    const docInfo: ArticleWithText[] = di.map(d => {
       return { ...d, text: d.title + " " + d.abstract };
     });
-    const docs = docInfo.map((d) => nlp.readDoc(d.text));
-    const tokens = docs.map((d) => {
+    const docs = docInfo.map(d => nlp.readDoc(d.text));
+    const tokens = docs.map(d => {
       return d
         .tokens()
-        .filter((t) => t.out(its.type) === "word" && !t.out(its.stopWordFlag))
+        .filter(t => t.out(its.type) === "word" && !t.out(its.stopWordFlag))
         .out(its.normal); // its.lemma
     });
 
     storeObject("tokens", tokens);
     storeObject("docInfo", docInfo);
-    return w2vReq.then((w2v) => {
-      const sentVecs = tokens.map((ts) => embedSentence(ts, w2v));
+    return w2vReq.then(w2v => {
+      const sentVecs = tokens.map(ts => embedSentence(ts, w2v));
 
       const umap = new UMAP({ minDist: 0.1, spread: 2, distanceFn: cosine });
       const embedding = umap.fit(sentVecs);
