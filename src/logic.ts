@@ -17,6 +17,8 @@ import * as pubMed from "./article-sources/pub-med";
 
 import type { KeywordWorker } from "./keyword-worker";
 
+import { OpenAI } from "langchain/llms/openai";
+
 type ArticleWithText = Article & { text: string };
 
 type PointData = Article & {
@@ -46,12 +48,7 @@ function loadObject(eid: string): unknown {
   return JSON.parse(sessionStorage.getItem(eid) ?? "{}");
 }
 
-function plotTextEmbedding(
-  data: PointData[],
-  clusterData: ClusterData[],
-  plotDivId: string,
-  textDivId: string
-) {
+function plotTextEmbedding(data: PointData[], clusterData: ClusterData[], plotDivId: string, textDivId: string) {
   let schema = {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     datasets: {
@@ -131,11 +128,7 @@ function plotTextEmbedding(
     .catch(console.error);
 }
 
-function preparePlotData(
-  textData: ArticleWithText[],
-  embedding: number[][],
-  clusters: string[]
-): PointData[] {
+function preparePlotData(textData: ArticleWithText[], embedding: number[][], clusters: string[]): PointData[] {
   let minYear = Math.min(...textData.map((d) => d.year));
   return textData.map((d, i) => {
     return {
@@ -150,11 +143,7 @@ function preparePlotData(
   });
 }
 
-function prepareClusterData(
-  clusts: number[],
-  keywords: string[],
-  plotData: PointData[]
-): ClusterData[] {
+function prepareClusterData(clusts: number[], keywords: string[], plotData: PointData[]): ClusterData[] {
   return getIdsPerCluster(clusts).map((ids, ci) => {
     return {
       x: mean(ids.map((i) => plotData[i].x)) as number,
@@ -185,6 +174,33 @@ async function plotClusterDataAsync({
   const keywordWorker = await spawn<KeywordWorker>(worker);
   const { clusts, keywords } = await keywordWorker(tree, nClusters, embedding, tokens);
   await Thread.terminate(keywordWorker);
+
+  const byClasters: { keyword: string; articles: Article[] }[] = keywords.map((keyword) => ({
+    keyword,
+    articles: [],
+  }));
+  clusts.forEach((c, i) => {
+    byClasters[c].articles.push(docInfo[i]);
+  });
+
+  const model = new OpenAI({
+    openAIApiKey: "",
+    temperature: 0.9,
+  });
+
+  await Promise.all(
+    byClasters.map(async (cluster, i) => {
+      keywords[i] = await model.call(`
+        We have a set of articles with the following names:
+        ${cluster.articles.map((article) => " - " + article.title).join("\n")}
+
+        This group can be distinguished by the following keywords: ${cluster.keyword}.
+
+        Generate a single short sentence in maximum of ten words that would describe this group of articles.
+        Do not use words such as "group", "articles", "about".
+      `);
+    })
+  );
 
   const plotData = preparePlotData(
     docInfo,
