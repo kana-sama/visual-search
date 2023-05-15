@@ -39,6 +39,10 @@ export function isNumber(value: unknown): value is number {
   return typeof value === "number";
 }
 
+export function isStringNumber(value: unknown): value is string {
+  return typeof value === "string" && !isNaN(parseInt(value, 10));
+}
+
 export function isString(value: unknown): value is string {
   return typeof value === "string";
 }

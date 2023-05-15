@@ -6,7 +6,7 @@ export type KeywordWorker = typeof keywordWorker;
 function keywordWorker(
   tree: ClusterLike,
   nClusters: number,
-  embedding: number[][],
+  embedding: [number, number][],
   tokens: string[][]
 ): { clusts: number[]; keywords: string[] } {
   const clusts = extractAgnesClusters(tree, nClusters, embedding.length);

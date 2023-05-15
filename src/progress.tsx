@@ -73,7 +73,7 @@ export function ProgressView({ progress }: { progress: Progress }) {
     <ProgressStepList>
       {progress.steps.map(step => (
         <ProgressStepItem key={step.id} complete={step.isComplete}>
-          <ProgressStepItemCheck checked={step.isComplete} />
+          <ProgressStepItemCheck checked={step.isComplete} readOnly />
           {step.message}
         </ProgressStepItem>
       ))}
@@ -86,7 +86,7 @@ const ProgressStepList = styled.div`
   flex-direction: column;
 `;
 
-const ProgressStepItemCheck = styled.input.attrs({ type: "checkbox", readonly: true })`
+const ProgressStepItemCheck = styled.input.attrs({ type: "checkbox" })`
   margin-right: 4px;
 `;
 

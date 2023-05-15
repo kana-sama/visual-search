@@ -1,187 +1,137 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useCallback } from "react";
+import styled from "styled-components";
 import "bulma/css/bulma.css";
-import debounce from "lodash/debounce";
 
-import { analyseTexts, updateNClusters } from "./logic";
-import { useStateStored, isNumber, isString, isBoolean } from "./hooks/use-state-stored";
+import type { SearchResponse, ClusterizeResponse } from "./logic";
+import { doSearchRequest, clusterize } from "./logic";
+
+import { SearchBar, ClusteringParams, type SearchRequest, type ClusterizeRequest } from "./components/search-bar";
 
 import { ProgressView, useProgress } from "./progress";
+import { Plot } from "./components/plot";
+import { useEffectAsync } from "./hooks/use-effect-async";
 
-type SearchRequest = {
-  query: string;
-  articlesCount: number;
-  articlesSource: string;
-  articlesExcludeEmpty: boolean;
-};
+type State =
+  | { tag: "not_searched" }
+  | { tag: "searching" }
+  | { tag: "ready_for_clustering"; search: SearchResponse; clustsParams: ClusterizeRequest }
+  | { tag: "clustering"; search: SearchResponse; clustsParams: ClusterizeRequest }
+  | { tag: "clustered"; search: SearchResponse; clustsParams: ClusterizeRequest; clusts: ClusterizeResponse };
 
-function SearchBar(props: { onSearch(req: SearchRequest): void }) {
-  const [query, setQuery] = useState("");
+type Handlers<T> = { [s in State["tag"]]: (args: State & { tag: s }) => T };
 
-  const [articlesCount, setArticlesCount] = useStateStored("articles-count", 100, isNumber);
-  const [articlesSource, setArticlesSource] = useStateStored("articles-source", "semantic-scholar", isString);
-  const [articlesExcludeEmpty, setArticlesExcludeEmpty] = useStateStored("exclude-empty", false, isBoolean);
-
-  function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-
-    props.onSearch({
-      query,
-      articlesCount,
-      articlesSource,
-      articlesExcludeEmpty,
-    });
-  }
-
-  return (
-    <header>
-      <div className="container">
-        <form className="content" onSubmit={handleSubmit}>
-          <h1>Search</h1>
-          <div className="columns">
-            <input
-              className="column input is-7"
-              placeholder="Search query"
-              value={query}
-              onChange={event => setQuery(event.currentTarget.value)}
-            />
-            <input
-              className="input"
-              type="number"
-              placeholder="#results"
-              value={articlesCount}
-              onChange={event => setArticlesCount(parseInt(event.currentTarget.value))}
-            />
-            <div className="select">
-              <select value={articlesSource} onChange={event => setArticlesSource(event.currentTarget.value)}>
-                <option value="semantic-scholar">Semantic Scholar</option>
-                <option value="pub-med">PubMed</option>
-              </select>
-            </div>
-            <button className="button" type="submit">
-              Search
-            </button>
-          </div>
-          <div className="is-fullwidth">
-            <div className="control">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={articlesExcludeEmpty}
-                  onChange={event => setArticlesExcludeEmpty(event.currentTarget.checked)}
-                />
-                Exclude empty articles
-              </label>
-            </div>
-          </div>
-        </form>
-      </div>
-    </header>
-  );
+function match<T>(state: State, handlers: Handlers<T>): T {
+  return handlers[state.tag](state as any);
 }
 
-const updateNClusters_ = debounce(updateNClusters, 500);
+function match_<T>(state: State, def: T, handlers: Partial<Handlers<T>>): T {
+  return handlers[state.tag]?.(state as any) ?? def;
+}
 
 export function App() {
   const progress = useProgress();
+  const [state, setState] = useState<State>({ tag: "not_searched" });
+  const [clustsParams, setClustsParams] = useState<ClusterizeRequest>();
+  const isDirty = match_(state, true, { not_searched: () => false });
+  const isSearching = match_(state, false, { searching: () => true });
 
-  const [clustersCount, setClustersCount] = useStateStored("clusters-count", 10, isNumber);
-  const [prettyKeywords, setPrettyKeywords] = useStateStored("pretty-kws", false, isBoolean);
-  const [openAIToken, setOpenAIToken] = useStateStored("open-ai-token", "", isString);
+  const handleSearch = useCallback(
+    async (request: SearchRequest) => {
+      if (!clustsParams) return;
 
-  const [searched, setSearched] = useState(false);
+      progress.reset();
+      setState({ tag: "searching" });
+      setState({ tag: "ready_for_clustering", search: await doSearchRequest(request, progress), clustsParams });
+    },
+    [clustsParams]
+  );
 
-  const prettifyKeywords = useMemo(() => prettyKeywords && { token: openAIToken }, [prettyKeywords, openAIToken]);
+  useEffectAsync(async () => {
+    if (!clustsParams) return;
+    if (state.tag !== "ready_for_clustering") return;
 
-  async function handleSearch(request: SearchRequest) {
     progress.reset();
 
-    await analyseTexts(request.query, progress, {
-      plotDivId: "out-plot",
-      textDivId: "out-text",
-      nClusters: clustersCount,
-      nResults: request.articlesCount,
-      excludeEmpty: request.articlesExcludeEmpty,
-      source: request.articlesSource,
-      prettifyKeywords,
+    setState({ tag: "clustering", search: state.search, clustsParams });
+    setState({
+      tag: "clustered",
+      search: state.search,
+      clusts: await clusterize(
+        progress,
+        state.search,
+        clustsParams.clustersCount,
+        clustsParams.prettyfyKeywords ? clustsParams.openAIToken : false
+      ),
+      clustsParams: clustsParams,
     });
+  }, [state, clustsParams]);
 
-    setSearched(true);
-  }
-
-  useEffect(() => {
-    if (!searched) return;
-
-    updateNClusters_(progress, {
-      plotDivId: "out-plot",
-      textDivId: "out-text",
-      nClusters: clustersCount,
-      prettifyKeywords,
-    });
-  }, [progress, clustersCount, prettifyKeywords]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleClusterize = useCallback(
+    (clustsParams: ClusterizeRequest) => {
+      setClustsParams(clustsParams);
+      setState(state =>
+        match<State>(state, {
+          not_searched: self => self,
+          searching: self => self,
+          ready_for_clustering: self => ({ ...self, clustsParams }),
+          clustering: self => ({ ...self, tag: "ready_for_clustering", clustsParams }),
+          clustered: self => ({ ...self, tag: "ready_for_clustering", clustsParams }),
+        })
+      );
+    },
+    [clustsParams]
+  );
 
   return (
-    <>
-      <SearchBar onSearch={handleSearch} />
+    <AppContainer dirty={isDirty}>
+      <AppHeader dirty={isDirty}>Visual Search</AppHeader>
+      <SearchBar disabled={isSearching} onSearch={handleSearch} />
+      <ClusteringParams onChange={handleClusterize} />
 
-      <div className="container">
-        <div className="control">
-          <label className="label">
-            Clusters
-            <input
-              type="range"
-              min="2"
-              max="50"
-              className="slider is-fullwidth"
-              disabled={!searched}
-              value={clustersCount}
-              onChange={event => setClustersCount(parseInt(event.currentTarget.value))}
-            />
-            {clustersCount}
-          </label>
-        </div>
-
-        <div className="control columns">
-          <label className="checkbox column is-4">
-            <input
-              type="checkbox"
-              checked={prettyKeywords}
-              onChange={event => setPrettyKeywords(event.currentTarget.checked)}
-            />
-            Prettify keywords using ChatGPT
-          </label>
-          <SecureInput
-            className="input column is-8"
-            style={{ fontFamily: "monospace" }}
-            placeholder="OpenAI token"
-            value={openAIToken}
-            disabled={!prettyKeywords}
-            onChange={event => setOpenAIToken(event.currentTarget.value)}
-          />
-        </div>
-      </div>
-
-      <div className="container my-5">
-        <ProgressView progress={progress} />
-      </div>
-
-      <main className="container" style={{ marginTop: "20px" }}>
-        <div className="columns">
-          <div id="out-plot" className="column is-8"></div>
-          <div id="out-text" className="column"></div>
-        </div>
-      </main>
-    </>
+      <AppBody>
+        {match(state, {
+          not_searched() {
+            return <></>;
+          },
+          searching() {
+            return <ProgressView progress={progress} />;
+          },
+          ready_for_clustering() {
+            return <ProgressView progress={progress} />;
+          },
+          clustering() {
+            return <ProgressView progress={progress} />;
+          },
+          clustered({ clusts, search, clustsParams }) {
+            return (
+              <Plot
+                clusts={clusts.clusts}
+                keywords={clusts.keywords}
+                searchResponse={search}
+                clustersRequest={clustsParams}
+              />
+            );
+          },
+        })}
+      </AppBody>
+    </AppContainer>
   );
 }
 
-function SecureInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  const [inFocus, setInFocus] = useState(false);
-  return (
-    <input
-      {...props}
-      type={inFocus ? "text" : "password"}
-      onFocus={() => setInFocus(true)}
-      onBlur={() => setInFocus(false)}
-    />
-  );
-}
+const AppContainer = styled.div<{ dirty: boolean }>`
+  padding: 0 20px 0;
+  max-width: 1280px;
+  margin: 0 auto;
+
+  padding-top: ${props => (props.dirty ? "0" : "200px")};
+  transition: padding-top 300ms ease-out;
+`;
+
+const AppHeader = styled.h1<{ dirty: boolean }>`
+  font-size: ${props => (props.dirty ? "2em" : "4em")};
+  transition: font-size 300ms ease-out;
+`;
+
+const AppBody = styled.div`
+  margin-top: 30px;
+`;

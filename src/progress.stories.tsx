@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Meta } from "@storybook/react";
 import { Progress, ProgressView, useProgress } from "./progress";
+import { useEffectAsync } from "./hooks/use-effect-async";
 
 export default {
   component: ProgressView,
@@ -68,10 +69,4 @@ export function DynamicExample() {
 
 function sleep(duration: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, duration));
-}
-
-function useEffectAsync(effect: () => Promise<unknown>, deps: unknown[]) {
-  return useEffect(() => {
-    effect();
-  }, deps);
 }

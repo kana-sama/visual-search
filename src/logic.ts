@@ -1,13 +1,11 @@
 import { spawn, Thread, Worker } from "threads";
 
-import type { Item } from "vega";
-import embed from "vega-embed";
 import winkNLP from "wink-nlp";
 import model from "wink-eng-lite-web-model";
 
 import { mean } from "mathjs";
 import { UMAP } from "umap-js";
-import { agnes, type Cluster } from "ml-hclust";
+import { agnes } from "ml-hclust";
 
 import { getIdsPerCluster } from "./cluster-utils";
 
@@ -20,8 +18,7 @@ import type { KeywordWorker } from "./keyword-worker";
 import { type BaseLLM } from "langchain/llms/base";
 import { OpenAI } from "langchain/llms/openai";
 import { Progress } from "./progress";
-
-type ArticleWithText = Article & { text: string };
+import { SearchRequest } from "./components/search-bar";
 
 type PointData = Article & {
   x: number;
@@ -42,232 +39,8 @@ type ClusterData = {
 const nlp = winkNLP(model, ["pos", "ner", "cer"]);
 const its = nlp.its;
 
-function storeObject(eid: string, obj: unknown) {
-  sessionStorage.setItem(eid, JSON.stringify(obj));
-}
-
-function loadObject(eid: string): unknown {
-  return JSON.parse(sessionStorage.getItem(eid) ?? "{}");
-}
-
-function plotTextEmbedding(data: PointData[], clusterData: ClusterData[], plotDivId: string, textDivId: string) {
-  let schema = {
-    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
-    datasets: {
-      "point-data": data,
-      "text-data": clusterData,
-    },
-    layer: [
-      {
-        data: { name: "point-data" },
-        mark: { type: "circle" },
-        encoding: {
-          x: {
-            field: "x",
-            type: "quantitative",
-            scale: { zero: false },
-          },
-          y: {
-            field: "y",
-            type: "quantitative",
-            scale: { zero: false },
-          },
-          size: { field: "logCit", type: "quantitative" },
-          //   "color": {"field": "rank", "type": "quantitative", "scale": {"scheme": "goldred", "reverse": true}},
-          color: { field: "cluster" },
-          opacity: { field: "opacity", legend: null },
-          tooltip: [
-            { field: "title" },
-            { field: "citationCount" },
-            { field: "year" },
-            { field: "cluster" },
-            { field: "rank" },
-          ],
-          //   "shape": {"field": "Species", "type": "nominal"}
-        },
-      },
-      {
-        data: { name: "text-data" },
-        mark: { type: "text" },
-        encoding: {
-          x: {
-            field: "x",
-            type: "quantitative",
-            scale: { zero: false },
-          },
-          y: {
-            field: "y",
-            type: "quantitative",
-            scale: { zero: false },
-          },
-          text: { field: "cluster" },
-        },
-      },
-    ],
-    width: 500,
-    height: 500,
-  };
-
-  embed(`#${plotDivId}`, schema)
-    .then(function (result) {
-      result.view.addEventListener("click", (event, item?: null | Item<Article>) => {
-        if (item === null || item === undefined || item.datum === undefined) return;
-        const $text = document.getElementById(textDivId);
-
-        if ($text)
-          $text.innerHTML = `
-            <h2 class="title">
-              <a href=${item.datum.url} target="_blank">
-                ${item.datum.title}
-              </a>
-            </h2>
-            <br />
-            ${item.datum.abstract}
-          `;
-      });
-    })
-    .catch(console.error);
-}
-
-function preparePlotData(textData: ArticleWithText[], embedding: number[][], clusters: string[]): PointData[] {
-  let minYear = Math.min(...textData.map(d => d.year));
-  return textData.map((d, i) => {
-    return {
-      ...d,
-      x: parseFloat(embedding[i][0].toFixed(2)),
-      y: parseFloat(embedding[i][1].toFixed(2)),
-      logCit: Math.log10(d.citationCount),
-      opacity: (d.year - minYear) / (2022 - minYear),
-      rank: i,
-      cluster: clusters[i],
-    };
-  });
-}
-
-function prepareClusterData(clusts: number[], keywords: string[], plotData: PointData[]): ClusterData[] {
-  return getIdsPerCluster(clusts).map((ids, ci) => {
-    return {
-      x: mean(ids.map(i => plotData[i].x)) as number,
-      y: mean(ids.map(i => plotData[i].y)) as number,
-      cluster: keywords[ci],
-    };
-  });
-}
-
-async function generateClusterName(model: BaseLLM, keywords: string[], titles: string[]): Promise<string> {
-  return await model.call(`
-    We have a set of articles with the following names:
-    ${titles.map(title => " - " + title).join("\n")}
-
-    This group can be distinguished by the following keywords:
-    ${keywords.map(keyword => " - " + keyword).join("\n")}
-
-    Generate a short title using maximum of 7 words that would describe that group of articles.
-    Do not use common words like "group", "article", "about".
-    Do not wrap with quotes. Do not use pattern "A: B".
-  `);
-}
-
 function traverseP<T, G>(xs: T[], f: (x: T) => Promise<G>): Promise<G[]> {
   return Promise.all(xs.map(f));
-}
-
-async function plotClusterDataAsync(
-  progress: Progress,
-  {
-    plotDivId,
-    textDivId,
-    nClusters,
-    docInfo,
-    tokens,
-    embedding,
-    tree,
-    prettifyKeywords,
-  }: {
-    plotDivId: string;
-    textDivId: string;
-    nClusters: number;
-    docInfo: ArticleWithText[];
-    tokens: string[][];
-    embedding: number[][];
-    tree: Cluster;
-    prettifyKeywords: false | { token: string };
-  }
-) {
-  const step_clusterization = progress.step("Clusterization");
-  const worker = new Worker(new URL("./keyword-worker.ts", import.meta.url) as any);
-  const keywordWorker = await spawn<KeywordWorker>(worker);
-  let { clusts, keywords } = await keywordWorker(tree, nClusters, embedding, tokens);
-  await Thread.terminate(keywordWorker);
-  step_clusterization.complete();
-
-  if (prettifyKeywords) {
-    const step_prettify = progress.step("Resolve clusters names using ChatGPT");
-
-    const byClasters: { keyword: string; articles: Article[] }[] = keywords.map(keyword => ({
-      keyword,
-      articles: [],
-    }));
-    clusts.forEach((c, i) => {
-      byClasters[c].articles.push(docInfo[i]);
-    });
-
-    const model = new OpenAI({
-      openAIApiKey: prettifyKeywords.token,
-      temperature: 0.9,
-    });
-
-    keywords = await traverseP(byClasters, cluster =>
-      generateClusterName(
-        model,
-        cluster.keyword.split(","),
-        cluster.articles.map(article => article.title)
-      )
-    );
-
-    step_prettify.complete();
-  }
-
-  const plotData = preparePlotData(
-    docInfo,
-    embedding,
-    clusts.map(cl => keywords[cl])
-  );
-
-  const clusterData = prepareClusterData(clusts, keywords, plotData);
-
-  plotTextEmbedding(plotData, clusterData, plotDivId, textDivId);
-}
-
-export async function updateNClusters(
-  progress: Progress,
-  {
-    plotDivId,
-    textDivId,
-    nClusters,
-    prettifyKeywords,
-  }: {
-    plotDivId: string;
-    textDivId: string;
-    nClusters: number;
-    prettifyKeywords: false | { token: string };
-  }
-) {
-  const embedding: number[][] = loadObject("umap") as any;
-  const tokens: string[][] = loadObject("tokens") as any;
-  const docInfo: ArticleWithText[] = loadObject("docInfo") as any;
-  const tree: Cluster = loadObject("hclust") as any;
-
-  plotClusterDataAsync(progress, {
-    plotDivId: plotDivId,
-    textDivId: textDivId,
-    nClusters: nClusters,
-    docInfo: docInfo,
-    tokens: tokens,
-    embedding: embedding,
-    tree: tree,
-    prettifyKeywords,
-  });
 }
 
 function cosine(x: number[], y: number[]): number {
@@ -290,16 +63,17 @@ function cosine(x: number[], y: number[]): number {
   }
 }
 
-async function fetchWord2Vec() {
+async function fetchWord2Vec(): Promise<Record<string, number[]>> {
   const response = await fetch(new URL("./w2v.json", import.meta.url));
   return await response.json();
 }
 
-function embedSentence(tokens: string[], w2v: Record<string, number[]>) {
+function embedArticle(tokens: string[], w2v: Record<string, number[]>): number[] {
   // get the average of all word vectors for tokens that are present in w2v
-  let vecs = tokens.map(t => w2v[t]).filter(Array.isArray);
+  let vecs: number[][] = tokens.map(t => w2v[t]).filter(Array.isArray);
+
   if (vecs.length === 0) {
-    return Array(Object.values(w2v)[0].length).fill(0.0);
+    return Object.values(w2v)[0].map(_ => 0);
   }
 
   return mean(vecs, 0);
@@ -316,69 +90,163 @@ function getArticlesSource(source: string) {
   }
 }
 
-export async function analyseTexts(
-  query: string,
-  progress: Progress,
-  {
-    plotDivId,
-    textDivId,
-    nResults,
-    nClusters,
-    excludeEmpty,
-    source,
-    prettifyKeywords,
-  }: {
-    plotDivId: string;
-    textDivId: string;
-    nResults: number;
-    nClusters: number;
-    excludeEmpty: boolean;
-    source: string;
-    prettifyKeywords: false | { token: string };
+export type SearchResponse = ReturnType<typeof doSearchRequest> extends Promise<infer T> ? T : never;
+
+export async function doSearchRequest(req: SearchRequest, progress: Progress) {
+  async function fetchW2V() {
+    const step = progress.step("Downloading w2v.json");
+    const data = await fetchWord2Vec();
+    step.complete();
+    return data;
   }
-) {
-  const step_W2V = progress.step("Downloading w2v.json");
-  let w2vReq = fetchWord2Vec();
-  w2vReq.then(() => step_W2V.complete());
 
-  const step_getArticles = progress.step("Fetching articles");
-  let docReq = getArticlesSource(source)(query, nResults, excludeEmpty, step_getArticles);
-  docReq.then(() => step_getArticles.complete());
+  async function fetchArticles() {
+    const step = progress.step("Fetching articles");
+    const data = await getArticlesSource(req.articlesSource)(
+      req.query,
+      req.articlesCount,
+      req.articlesExcludeEmpty,
+      step
+    );
+    step.complete();
+    return data;
+  }
 
-  return docReq.then(di => {
-    const docInfo: ArticleWithText[] = di.map(d => {
-      return { ...d, text: d.title + " " + d.abstract };
-    });
-    const docs = docInfo.map(d => nlp.readDoc(d.text));
-    const tokens = docs.map(d => {
-      return d
+  const [w2v, articles] = await Promise.all([fetchW2V(), fetchArticles()]);
+
+  const step_analyze = progress.step("Analyzing articles");
+
+  const tokens: string[][] = articles
+    .map(article => nlp.readDoc(article.title + " " + article.abstract))
+    .map(article =>
+      article
         .tokens()
-        .filter(t => t.out(its.type) === "word" && !t.out(its.stopWordFlag))
-        .out(its.normal); // its.lemma
-    });
+        .filter(tok => tok.out(its.type) === "word" && !tok.out(its.stopWordFlag))
+        .out(its.normal)
+    );
 
-    storeObject("tokens", tokens);
-    storeObject("docInfo", docInfo);
-    return w2vReq.then(w2v => {
-      const sentVecs = tokens.map(ts => embedSentence(ts, w2v));
+  const embeddings = tokens.map(ts => embedArticle(ts, w2v));
 
-      const umap = new UMAP({ minDist: 0.1, spread: 2, distanceFn: cosine });
-      const embedding = umap.fit(sentVecs);
+  const umap = new UMAP({ minDist: 0.1, spread: 2, distanceFn: cosine });
+  const embeddings2D: [number, number][] = umap.fit(embeddings) as any;
 
-      storeObject("umap", embedding);
-      const tree = agnes(embedding, { method: "ward" });
-      storeObject("hclust", tree);
+  const tree = agnes(embeddings2D, { method: "ward" });
 
-      plotClusterDataAsync(progress, {
-        plotDivId: plotDivId,
-        textDivId: textDivId,
-        nClusters: nClusters,
-        docInfo: docInfo,
-        tokens: tokens,
-        embedding: embedding,
-        tree: tree,
-        prettifyKeywords,
-      });
-    });
+  step_analyze.complete();
+
+  return {
+    articles,
+    tokens,
+    tree,
+    umap,
+    embeddings,
+    embeddings2D,
+  };
+}
+
+async function generateClusterName(model: BaseLLM, keywords: string[], titles: string[]): Promise<string> {
+  return await model.call(`
+    We have a set of articles with the following names:
+    ${titles.map(title => " - " + title).join("\n")}
+
+    This group can be distinguished by the following keywords:
+    ${keywords.map(keyword => " - " + keyword).join("\n")}
+
+    Generate a short title using maximum of 7 words that would describe that group of articles.
+    Do not use common words like "group", "article", "about".
+    Do not wrap with quotes. Do not use pattern "A: B".
+  `);
+}
+
+export type ClusterizeResponse = {
+  clusts: number[];
+  keywords: string[];
+};
+
+export async function clusterize(
+  progress: Progress,
+  response: SearchResponse,
+  clustersAmount: number,
+  token: false | string
+): Promise<ClusterizeResponse> {
+  const step_clusterization = progress.step("Clusterization");
+  const worker = new Worker(new URL("./keyword-worker.ts", import.meta.url) as any);
+  const keywordWorker = await spawn<KeywordWorker>(worker);
+  let { clusts, keywords } = await keywordWorker(response.tree, clustersAmount, response.embeddings2D, response.tokens);
+  await Thread.terminate(keywordWorker);
+  step_clusterization.complete();
+
+  let resp = { clusts, keywords };
+
+  if (token) {
+    try {
+      resp = await prettifyClusters(progress, token, response, resp);
+      console.log(resp);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  return resp;
+}
+
+export async function prettifyClusters(
+  progress: Progress,
+  openAIToken: string,
+  search: SearchResponse,
+  resp: ClusterizeResponse
+): Promise<ClusterizeResponse> {
+  const step_prettify = progress.step("Resolve clusters names using ChatGPT");
+
+  const byClasters: { keyword: string; articles: Article[] }[] = resp.keywords.map(keyword => ({
+    keyword,
+    articles: [],
+  }));
+  resp.clusts.forEach((c, i) => {
+    byClasters[c].articles.push(search.articles[i]);
+  });
+
+  const model = new OpenAI({
+    openAIApiKey: openAIToken,
+    temperature: 0.9,
+  });
+
+  const keywords = await traverseP(byClasters, cluster =>
+    generateClusterName(
+      model,
+      cluster.keyword.split(","),
+      cluster.articles.map(article => article.title)
+    )
+  );
+
+  step_prettify.complete();
+
+  console.log(keywords);
+
+  return { clusts: resp.clusts, keywords };
+}
+
+export function preparePlotData(articles: Article[], embedding: number[][], keywords: string[]): PointData[] {
+  let minYear = Math.min(...articles.map(d => d.year));
+  return articles.map((article, i) => {
+    return {
+      ...article,
+      x: parseFloat(embedding[i][0].toFixed(2)),
+      y: parseFloat(embedding[i][1].toFixed(2)),
+      logCit: Math.log10(article.citationCount),
+      opacity: (article.year - minYear) / (2022 - minYear),
+      rank: i,
+      cluster: keywords[i],
+    };
+  });
+}
+
+export function prepareClusterData(clusts: number[], keywords: string[], plotData: PointData[]): ClusterData[] {
+  return getIdsPerCluster(clusts).map((ids, ci) => {
+    return {
+      x: mean(ids.map(i => plotData[i].x)),
+      y: mean(ids.map(i => plotData[i].y)),
+      cluster: keywords[ci],
+    };
   });
 }
