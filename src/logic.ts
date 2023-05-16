@@ -147,7 +147,10 @@ export async function doSearchRequest(req: SearchRequest, progress: Progress) {
 async function generateClusterName(model: BaseLLM, keywords: string[], titles: string[]): Promise<string> {
   return await model.call(`
     We have a set of articles with the following names:
-    ${titles.map(title => " - " + title).join("\n")}
+    ${titles
+      .slice(0, 10)
+      .map(title => " - " + title)
+      .join("\n")}
 
     This group can be distinguished by the following keywords:
     ${keywords.map(keyword => " - " + keyword).join("\n")}
