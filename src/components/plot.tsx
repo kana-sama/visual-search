@@ -83,9 +83,6 @@ function mkSchema(pointData: PointData[], clusterData: ClusterData[]) {
   };
 }
 
-// export function preparePlotData(articles: Article[], embedding: number[][], clusters: string[]): PointData[] {
-// export function prepareClusterData(clusts: number[], keywords: string[], plotData: PointData[]): ClusterData[] {
-
 type Props = {
   clusts: number[];
   keywords: string[];

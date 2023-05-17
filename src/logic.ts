@@ -144,26 +144,50 @@ export async function doSearchRequest(req: SearchRequest, progress: Progress) {
   };
 }
 
-async function generateClusterName(model: BaseLLM, keywords: string[], titles: string[]): Promise<string> {
-  return await model.call(`
-    We have a set of articles with the following names:
-    ${titles
-      .slice(0, 10)
-      .map(title => " - " + title)
-      .join("\n")}
+function stripPrefix(str: string, prefix: string): string {
+  if (str.startsWith(prefix)) {
+    return str.substring(prefix.length);
+  } else {
+    return str;
+  }
+}
 
-    This group can be distinguished by the following keywords:
-    ${keywords.map(keyword => " - " + keyword).join("\n")}
+async function generateClusterName(
+  model: BaseLLM,
+  keywords: string[],
+  titles: string[]
+): Promise<{
+  title: string;
+  description: string;
+}> {
+  const prompt = `
+We have a set of articles with the following names:
+${titles
+  .slice(0, 10)
+  .map(title => " - " + title)
+  .join("\n")}
 
-    Generate a short title using maximum of 7 words that would describe that group of articles.
-    Do not use common words like "group", "article", "about".
-    Do not wrap with quotes. Do not use pattern "A: B".
-  `);
+This group can be distinguished by the following keywords:
+${keywords.map(keyword => " - " + keyword).join("\n")}
+Generate a short title using maximum of 7 words that would describe that group of articles and
+then generate a short description in 2-5 sentencies for that group of articles.
+First line should be just a title as plain text, second line should be a description. Both lines are required.
+Do not use common words like "group", "article", "about" for title.
+Do not wrap title with quotes. Do not use pattern "A: B".`;
+
+  const result = await model.call(prompt);
+  const [title, description] = result.trim().split("\n");
+  console.log(result);
+  return {
+    title: stripPrefix(title, "Title:").trim(),
+    description: stripPrefix(description, "Description:").trim(),
+  };
 }
 
 export type ClusterizeResponse = {
   clusts: number[];
   keywords: string[];
+  prettified?: { title: string; description: string; keywords: string[] }[];
 };
 
 export async function clusterize(
@@ -214,19 +238,20 @@ export async function prettifyClusters(
     temperature: 0.9,
   });
 
-  const keywords = await traverseP(byClasters, cluster =>
-    generateClusterName(
+  const prettified = await traverseP(byClasters, async cluster => {
+    const keywords = cluster.keyword.split(",");
+    const { title, description } = await generateClusterName(
       model,
-      cluster.keyword.split(","),
+      keywords,
       cluster.articles.map(article => article.title)
-    )
-  );
+    );
+
+    return { title, description, keywords };
+  });
 
   step_prettify.complete();
 
-  console.log(keywords);
-
-  return { clusts: resp.clusts, keywords };
+  return { clusts: resp.clusts, keywords: prettified.map(p => p.title), prettified };
 }
 
 export function preparePlotData(articles: Article[], embedding: number[][], keywords: string[]): PointData[] {

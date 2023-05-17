@@ -10,6 +10,7 @@ import { SearchBar, ClusteringParams, type SearchRequest, type ClusterizeRequest
 import { ProgressView, useProgress } from "./progress";
 import { Plot } from "./components/plot";
 import { useEffectAsync } from "./hooks/use-effect-async";
+import { Clusters } from "./components/clusters";
 
 type State =
   | { tag: "not_searched" }
@@ -104,12 +105,19 @@ export function App() {
           },
           clustered({ clusts, search, clustsParams }) {
             return (
-              <Plot
-                clusts={clusts.clusts}
-                keywords={clusts.keywords}
-                searchResponse={search}
-                clustersRequest={clustsParams}
-              />
+              <>
+                <Plot
+                  clusts={clusts.clusts}
+                  keywords={clusts.keywords}
+                  searchResponse={search}
+                  clustersRequest={clustsParams}
+                />
+                {clusts.prettified && (
+                  <div style={{ marginTop: "20px" }}>
+                    <Clusters clusters={clusts.prettified} />
+                  </div>
+                )}
+              </>
             );
           },
         })}
