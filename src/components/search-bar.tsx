@@ -154,12 +154,15 @@ export function ClusteringParams({ onChange }: { onChange(params: ClusterizeRequ
       <SearchParam>
         <SearchParamLabel htmlFor="clusters-count">Clusters</SearchParamLabel>
         <input
-          type="number"
-          className="input"
+          type="range"
           id="clusters-count"
+          min={2}
+          max={50}
+          step={1}
           value={clustersCount}
           onChange={e => setClustersCount(e.currentTarget.value)}
         />
+        <SearchParamValue>{clustersCount}</SearchParamValue>
       </SearchParam>
 
       <SearchParam>
@@ -228,9 +231,16 @@ const SearchInput = styled.input`
 
 const SearchParams = styled.div`
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   justify-content: right;
-  gap: 24px;
+  gap: 10px;
+  margin: 10px 0;
+
+  @media (min-width: 768px) {
+    flex-direction: row;
+    gap: 24px;
+    margin: 5px 0;
+  }
 `;
 
 const SearchParam = styled.div`
@@ -242,4 +252,10 @@ const SearchParam = styled.div`
 const SearchParamLabel = styled.label`
   color: #555;
   margin-right: 8px;
+  white-space: nowrap;
+`;
+
+const SearchParamValue = styled.span`
+  width: 30px;
+  text-align: right;
 `;
